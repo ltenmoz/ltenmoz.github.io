@@ -1,0 +1,401 @@
+<!doctype html>
+<meta charset=utf-8>
+<title>beforeinput-based EditContext editor</title>
+<h1>beforeinput-based EditContext editor</h1>
+<em>This is probably a bad idea.</em>
+<div id=controls><label id=boldLabel><input id=boldCheckbox type=checkbox> Bold</label></div>
+<div id=host><div id=firstLine></div></div>
+<style>
+#controls {
+  margin: 8px 0;
+}
+#host {
+  border: 2px solid black;
+  padding: 2px;
+  border-radius: 5px;
+  background: #ffe;
+  white-space: pre;
+}
+#host div::after {
+  /*
+   white-space: pre together with this helps with the annoying
+   fact that empty <div></div> doesn't have any height.
+   */
+  content: '\A';
+}
+::highlight(composition) {
+  text-decoration: underline;
+}
+</style>
+<script>
+'use strict';
+firstLine.append(''); // ensure it has a text node
+const editContext = new EditContext();
+host.editContext = editContext;
+
+function nodeToStr(node) {
+  if (node instanceof Text) {
+    return node.data;
+  }
+  return node.tagName + '[' + Array.from(node.childNodes).map(nodeToStr).join() + ']';
+}
+
+// Tree walker with nicer properties
+// (construct from range boundary, setting node = null at end of iteration, and nextNonDescendant() method)
+class NiceTreeWalker {
+  node;
+  constructor(startContainer, startOffset) {
+    if (startContainer instanceof Text) {
+      this.node = startContainer;
+      this.nextNode();
+    } else if (startOffset === startContainer.childNodes.length) {
+      while (startContainer.lastChild)
+        startContainer = startContainer.lastChild;
+      this.node = startContainer;
+      this.nextNode();
+    } else {
+      this.node = startContainer.childNodes[startOffset];
+    }
+  }
+  nextNode() {
+    if (!this.node) return;
+    if (this.node.firstChild) {
+      this.node = this.node.firstChild;
+    } else {
+      this.nextNonDescendant();
+    }
+  }
+  previousNode() {
+    if (!this.node) return;
+    while (!this.node.previousSibling) {
+      this.node = this.node.parentNode;
+      if (this.node === host) {
+        this.node = null;
+        return;
+      }
+    }
+    this.node = this.node.previousSibling;
+    while (this.node.lastChild) {
+      this.node = this.node.lastChild;
+    }
+  }
+  nextNonDescendant() {
+    if (!this.node) return;
+    while (!this.node.nextSibling) {
+      this.node = this.node.parentNode;
+      if (this.node === host) {
+        this.node = null;
+        return;
+      }
+    }
+    this.node = this.node.nextSibling;
+  }
+}
+
+function lineHasAnyTextNodes(div) {
+  const treeWalker = new NiceTreeWalker(div, 0);
+  while (treeWalker.node && !(treeWalker.node instanceof HTMLDivElement)) {
+    if (treeWalker.node instanceof Text) {
+      return true;
+    }
+    treeWalker.nextNode();
+  }
+  return false;
+}
+function fixupLine(div) {
+  // Put a text node in here if there is none, to help with our calculations.
+  if (!lineHasAnyTextNodes(div)) {
+    div.append('');
+  }
+}
+function fixupLineContaining(node) {
+  while (node && !(node instanceof HTMLDivElement)) {
+    node = node.parentNode;
+  }
+  if (node) {
+    fixupLine(node);
+  }
+}
+
+function fixupRange(range) {
+  if (!range) return null;
+  // don't allow range.startContainer/endContainer == host because we don't handle it properly
+  const newRange = {startContainer: range.startContainer, endContainer: range.endContainer,
+    startOffset: range.startOffset, endOffset: range.endOffset};
+  for (const point of ['start', 'end']) {
+    if (range[`${point}Container`] === host) {
+      newRange[`${point}Container`] = host.childNodes[range[`${point}Offset`]];
+      newRange[`${point}Offset`] = 0;
+      if (!newRange[`${point}Container`]) {
+        newRange[`${point}Container`] = host.lastChild;
+        newRange[`${point}Offset`] = host.lastChild.childNodes.length;
+      }
+    }
+  }
+  return newRange;
+}
+
+// Delete editor contents in DOM range `range`.
+function deleteRange(range) {
+  let {startContainer, startOffset, endContainer, endOffset} = range;
+  if (startContainer === endContainer && startOffset === endOffset) {
+    return;
+  }
+  const treeWalker = new NiceTreeWalker(startContainer, startOffset);
+  if (startContainer instanceof Text) {
+    if (startContainer === endContainer) {
+      // Deletion is entirely in one text node.
+      startContainer.deleteData(startOffset, endOffset - startOffset);
+      return;
+    }
+    // Delete rest of startContainer's text data.
+    startContainer.deleteData(startOffset, startContainer.length - startOffset);
+  }
+  // Delete data from ending text node.
+  if (endContainer instanceof Text) {
+    endContainer.deleteData(0, endOffset);
+    endOffset = 0;
+  }
+  // Collect nodes to be removed.
+  const toRemove = [];
+  let endNode = endContainer instanceof Text ? endContainer
+    : endContainer.childNodes[endOffset];
+  if (!endNode) {
+    endNode = endContainer.childNodes[endOffset - 1];
+    toRemove.push(endNode);
+  }
+  if (endNode.parentNode.nodeName === 'B') {
+    endNode = endNode.parentNode;
+  }
+  while (treeWalker.node !== endNode) {
+    toRemove.push(treeWalker.node);
+    treeWalker.nextNode();
+    if (!treeWalker.node) throw Error('Never reached endNode.');
+  }
+  const toRelocate = [];
+  if (!(endNode instanceof HTMLDivElement)) {
+    // Now, we need to relocate everything after the endNode
+    // in endNode's line into startContainer's line.
+    if (toRemove[0] === endNode) {
+      // We're going to remove the endNode, so don't relocate it.
+      treeWalker.nextNonDescendant();
+    }
+    while (treeWalker.node && !(treeWalker.node instanceof HTMLDivElement)) {
+      toRelocate.push(treeWalker.node);
+      treeWalker.nextNonDescendant();
+    }
+  }
+  for (const node of toRemove) {
+    node.remove();
+  }
+  let relocateTo = startContainer;
+  if (relocateTo.parentNode.nodeName === 'B') {
+    // don't relocate into <b> node
+    relocateTo = relocateTo.parentNode;
+  }
+  // Whether to relocate after the node relocateTo,
+  // or to relocate into relocateTo as the last child.
+  let relocateAfter = !(startContainer instanceof HTMLDivElement);
+  for (const node of toRelocate) {
+    if (relocateAfter) {
+      relocateTo.after(node);
+    } else {
+      relocateTo.insertBefore(node, null);
+    }
+    relocateTo = node;
+    relocateAfter = true;
+  }
+  if (!host.childNodes.length) {
+    // Ensure that there is at least one line
+    let div = document.createElement('div');
+    div.append('');
+    host.append(div);
+  } else {
+    // ensure line always has a text node
+    fixupLineContaining(startContainer);
+  }
+}
+
+// Replace editor contents in DOM range `range` with newText.
+// Returns a range where newText appears.
+function replaceRangeWithText(range, newText) {
+  deleteRange(range);
+  const {startContainer, startOffset} = range;
+  // For simplicity, let's always start from a text node.
+  let startTextNode = startContainer;
+  let offset = startOffset;
+  if (!(startContainer instanceof Text)) {
+    let treeWalker = new NiceTreeWalker(startContainer, startOffset);
+    // go forwards to next text node
+    while (!(treeWalker.node instanceof Text)) {
+      offset = 0;
+      treeWalker.nextNode();
+      if (!treeWalker.node || treeWalker.node.tagName === 'DIV') {
+        // go backwards to previous text node instead
+        treeWalker = new NiceTreeWalker(startContainer, startOffset);
+        while (!(treeWalker.node instanceof Text)) {
+          let prev = treeWalker.previousNode();
+          if (!prev) throw Error('We removed all the text nodes in the editor?');
+        }
+        offset = treeWalker.node.length;
+        break;
+      }
+    }
+    startTextNode = treeWalker.node;
+  }
+  if (startTextNode.parentNode.nodeName === 'B') {
+    // split bold node
+    let dataAfter = startTextNode.substringData(offset, startTextNode.length - offset);
+    startTextNode.deleteData(offset, startTextNode.length - offset);
+    let emptyNode = new Text(''); // use empty text node for positioning
+    startTextNode.parentNode.after(emptyNode);
+    if (!startTextNode.data) {
+      // Remove empty <b>
+      startTextNode.parentNode.remove();
+    }
+    if (dataAfter) {
+      let boldAfter = document.createElement('b');
+      boldAfter.append(dataAfter);
+      emptyNode.after(boldAfter);
+    }
+    startTextNode = emptyNode;
+    offset = 0;
+  }
+  // We need to relocate everything in startTextNode's line after startTextNode
+  // into the last line we end up inserting.
+  let relocateToLastLine = [];
+  if (startTextNode.length > offset) {
+    // Also include text starting from textNode[offset]
+    let endText = new Text(startTextNode.data.substring(offset));
+    startTextNode.deleteData(offset, startTextNode.length - offset);
+    if (startTextNode.parentNode.nodeName === 'B') {
+      let bold = document.createElement('b');
+      bold.append(endText);
+      endText = bold;
+    }
+    relocateToLastLine.push(endText);
+  }
+  let treeWalker = new NiceTreeWalker(startTextNode, 0);
+  while (treeWalker.node && !(treeWalker.node instanceof HTMLDivElement)) {
+    relocateToLastLine.push(treeWalker.node);
+    treeWalker.nextNonDescendant();
+  }
+  for (const node of relocateToLastLine) {
+    node.remove();
+  }
+  const startTextNodeOffset = offset;
+  let currNode = startTextNode;
+  let lastLine = currNode.parentNode;
+  while (true) {
+    const lineBreakIndex = newText.indexOf('\n');
+    let newNode = new Text(lineBreakIndex === -1 ? newText : newText.substring(0, lineBreakIndex));
+    if (boldCheckbox.checked) {
+      const bold = document.createElement('b');
+      bold.append(newNode);
+      newNode = bold;
+    }
+    lastLine.append(newNode);
+    currNode = newNode;
+    if (lineBreakIndex === -1) break;
+    // Create next line
+    const line = document.createElement('div');
+    newText = newText.substring(lineBreakIndex + 1);
+    offset = 0;
+    lastLine.after(line);
+    lastLine = line;
+  }
+  for (const element of relocateToLastLine) {
+    lastLine.append(element);
+  }
+  const resultRange = new Range();
+  resultRange.setStart(startTextNode, startTextNodeOffset);
+  if (currNode instanceof Text) {
+    resultRange.setEnd(currNode, currNode.length);
+  } else {
+    console.assert(currNode.nodeName === 'B');
+    console.assert(currNode.childNodes.length === 1);
+    console.assert(currNode.childNodes[0] instanceof Text);
+    resultRange.setEnd(currNode.firstChild, currNode.firstChild.length);
+  }
+  fixupLineContaining(resultRange.startContainer);
+  fixupLineContaining(resultRange.endContainer);
+  // (could merge adjacent text nodes and <b> elements somewhere here for better performance)
+  getSelection().collapse(resultRange.endContainer, resultRange.endOffset);
+  return resultRange;
+}
+
+let compositionRange;
+// Use custom highlights to highlight composition.
+// (But this isn't ideal for all IME software.)
+const compositionHighlight = new Highlight();
+CSS.highlights.set('composition', compositionHighlight);
+editContext.addEventListener('compositionstart', () => {
+  compositionRange = getSelection().getRangeAt(0);
+});
+editContext.addEventListener('compositionend', () => {
+  compositionRange = undefined;
+  compositionHighlight.clear();
+});
+
+host.addEventListener('keydown', e => {
+  if (e.key === 'b' && e.ctrlKey) {
+    boldCheckbox.checked = !boldCheckbox.checked;
+    boldCheckbox.onchange();
+    e.preventDefault();
+  }
+});
+
+host.addEventListener('beforeinput', e => {
+  // input handling
+  e.preventDefault();
+  const data = (e.data || '').replace(/ /g, '\u00A0'); // replace space with &nbsp;
+  const range = fixupRange(e.getTargetRanges()[0]);
+  switch (e.inputType) {
+  case 'insertText':
+    replaceRangeWithText(range, data);
+    break;
+  case 'insertCompositionText':
+    if (range) {
+      compositionRange = range;
+    }
+    compositionRange = replaceRangeWithText(compositionRange, data);
+    compositionHighlight.clear();
+    compositionHighlight.add(compositionRange);
+    break;
+  case 'insertParagraph':
+  case 'insertLineBreak':
+    replaceRangeWithText(range, '\n');
+    break;
+  case 'insertFromPaste':
+  case 'insertFromYank':
+  case 'insertFromDrop':
+  case 'insertReplacementText':
+    let textData = e.dataTransfer.getData('text/plain');
+    if (textData) {
+      replaceRangeWithText(range, textData);
+    }
+    break;
+  case 'deleteWordBackward':
+  case 'deleteWordForward':
+  case 'deleteSoftLineBackward':
+  case 'deleteSoftLineForward':
+  case 'deleteEntireSoftLine':
+  case 'deleteHardLineBackward':
+  case 'deleteHardLineForward':
+  case 'deleteByDrag':
+  case 'deleteByCut':
+  case 'deleteContent':
+  case 'deleteContentForward':
+  case 'deleteContentBackward':
+    deleteRange(range);
+    getSelection().collapse(range.startContainer, range.startOffset);
+    break;
+  }
+});
+
+boldCheckbox.onchange = () => {
+  boldLabel.style.fontWeight = boldCheckbox.checked ? 'bold' : 'normal';
+};
+boldCheckbox.onchange();
+
+</script>
