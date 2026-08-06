@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <meta charset=utf-8>
 <title>Simple EditContext for testing</title>
+<p>This editor is for testing only.</p>
 <div id=d></div>
 <pre id=log></pre>
 <script>
@@ -38,7 +39,8 @@ for (let t of ["keydown", "keypress", "keyup"]) {
 }
 
 document.addEventListener("selectionchange", e => {
-  let {startOffset, endOffset} = getSelection().getRangeAt(0);
+  let {startContainer, endContainer, startOffset, endOffset} = getSelection().getRangeAt(0);
+  if (startContainer !== d.firstChild || endContainer !== d.firstChild) return;
   ec.updateSelection(startOffset, endOffset);
   log.append(`selectionchange ${startOffset}–${endOffset}\n`);
 });
