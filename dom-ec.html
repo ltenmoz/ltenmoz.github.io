@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<meta charset=utf-8>
+<title>Simple EditContext for testing</title>
+<div id=d></div>
+<pre id=log></pre>
+<script>
+let ec = new EditContext();
+d.editContext = ec;
+ec.addEventListener("textupdate", e => {
+  d.textContent = ec.text;
+  log.append(`textupdate ${e.cancelable} ${e.text} selection=${ec.selectionStart}–${ec.selectionEnd} updateRange=${e.updateRangeStart}–${e.updateRangeEnd} text=${ec.text}\n`);
+  getSelection().setBaseAndExtent(d.firstChild,ec.selectionStart,d.firstChild,ec.selectionEnd);
+});
+ec.addEventListener("textformatupdate", e => {
+  log.append(`textformatupdate ${e.getTextFormats().length}\n`);
+});
+ec.addEventListener("characterboundsupdate", () => {
+  ec.updateCharacterBounds(0,new Array(ec.text.length).fill().map((_,i)=>new DOMRect(0,i*10,10,10)));
+});
+function rangeToStr(range) {
+  let s = '';
+  s += range.startContainer.nodeName.toLowerCase() + ':' + range.startOffset;
+  s += '–';
+  if (range.startContainer !== range.endContainer)
+    s += range.endContainer.nodeName.toLowerCase() + ':';
+  s += range.endOffset;
+  return s;
+}
+d.addEventListener("beforeinput", e => {
+  const r = e.getTargetRanges().map(rangeToStr).join();
+  log.append(`beforeinput isComposing=${e.isComposing} ec.isComposing=${ec.isComposing} data=${e.data} targetRanges=${r}\n`);
+});
+
+for (let t of ["keydown", "keypress", "keyup"]) {
+  d.addEventListener(t, e => {
+    log.append(`${t} key=${e.key}\n`);
+  });
+}
+
+document.addEventListener("selectionchange", e => {
+  let {startOffset, endOffset} = getSelection().getRangeAt(0);
+  ec.updateSelection(startOffset, endOffset);
+  log.append(`selectionchange ${startOffset}–${endOffset}\n`);
+});
+for (let t of ["compositionstart", "compositionupdate", "compositionend"]) {
+  function l(e) {
+    log.append(`${e.type} @ ${e.target.nodeName || "EditContext"} : data=${JSON.stringify(e.data)}\n`);
+  }
+  ec.addEventListener(t, l);
+  d.addEventListener(t, l);
+}
+d.focus();
+
+
+d.addEventListener("beforeinput", e => {
+if (e.inputType === "insertReplacementText") { // for spellcheck
+    let newText = e.dataTransfer.getData("text");
+    let range = e.getTargetRanges()[0];
+    if (range.startContainer === d.firstChild && range.endContainer === d.firstChild) {
+      ec.updateText(range.startOffset, range.endOffset, newText);
+      d.textContent = ec.text;
+    }
+  }
+});
+
+</script>
