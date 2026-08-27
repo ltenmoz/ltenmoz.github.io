@@ -20,8 +20,8 @@ const form = document.querySelector('form');
 form.addEventListener('submit', e => {
   e.preventDefault();
   const data = new FormData(form);
-  navigator.permissions.query({name: 'notifications'}).then(result => {
-    if (result.state === 'granted') {
+  Notification.requestPermission().then(result => {
+    if (result === 'granted') {
       new Notification("hello", {
         title: data.get('title'),
         body: data.get('body'),
