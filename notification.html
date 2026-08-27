@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<meta content="width=device-width,initial-scale=1" name="viewport">
+<title>Notification test</title>
+<style>label{display:block;margin: 4px 0;}</style>
+<h1>Create notification with navigate</h1>
+<dialog id="errorDialog">
+<div id="error"></div>
+<button commandfor="errorDialog" command="close">OK</button>
+</dialog>
+<form>
+<label>title: <input name="title" value="Hello"></label>
+<label>body: <input name="body" value="Example body text"></label>
+<label>navigate: <input name="navigate" value="https://google.com"></label>
+<button>Display notification</button>
+</form>
+<script>
+'use strict';
+const form = document.querySelector('form');
+form.addEventListener('submit', e => {
+  e.preventDefault();
+  const data = new FormData(form);
+  navigator.permissions.query({name: 'notifications'}).then(result => {
+    if (result.state === 'granted') {
+      new Notification("hello", {
+        title: data.get('title'),
+        body: data.get('body'),
+        navigate: data.get('navigate'),
+      });
+    } else {
+      document.getElementById('error').textContent = 'Permission denied to send notification.';
+      document.getElementById('errorDialog').showModal();
+    }
+  });
+});
+</script>
