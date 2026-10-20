@@ -1,18 +1,14 @@
 <!doctype html>
 <title>X1/X2 button event tester</title>
-<p id="links">
-First, click these links to get history:
-<a id=step1 href="?step1">click here first</a>
-<a id=step2 href="?step2" inert style="opacity:0.5">click here second</a>
-</p>
+<a id=link href="?step2">First, click this link to get history.</a>
 <p id=instructions></p>
 <p id=error style="color:red;font-weight:bold;"></p>
 <script>
 'use strict';
-let step = 'click-step1';
+let step = 'click-step2';
 let preventDefault = false;
-if (location.search) {
-  location.search = "";
+if (location.search !== '?step1') {
+  location.search = '?step1';
 }
 let events = [];
 for (let type of ['mousedown', 'mouseup', 'auxclick']) {
@@ -93,18 +89,11 @@ navigation.onnavigate = async e=>{
     step = 'done';
     return;
   }
-  if (step !== 'click-step1' && step !== 'click-step2') return;
+  if (step !== 'click-step2') return;
 
   switch (search) {
-  case '?step1':
-    step1.inert = true;
-    step1.style.opacity = 0.5;
-    step2.inert = false;
-    step2.style.opacity = 1;
-    step = 'click-step2';
-    break;
   case '?step2':
-    links.remove();
+    link.remove();
     step = 'x1-pd';
     events = [];
     instructions.textContent = 'Now click the X1 button (preventDefault)';
