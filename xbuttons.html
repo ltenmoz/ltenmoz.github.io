@@ -43,7 +43,7 @@ addEventListener('auxclick', () => {
   const {search} = location;
   if (step === 'x1-pd') {
     if (search !== '?step2') {
-      error.textContent = 'unexpected navigation to ' + search;
+      error.textContent = 'unexpected navigation to ' + location.href;
       return;
     }
     if (!checkEvents(3)) return;
@@ -54,7 +54,7 @@ addEventListener('auxclick', () => {
   }
   if (step === 'x2-pd') {
     if (search !== '?step1') {
-      error.textContent = 'unexpected navigation to ' + search;
+      error.textContent = 'unexpected navigation to ' + location.href;
       return;
     }
     if (!checkEvents(4)) return;
@@ -70,10 +70,11 @@ navigation.onnavigate = async e=>{
   if (error.firstChild) {
     return;
   }
-  const {search} = new URL(e.destination.url);
+  const {url} = e.destination;
+  const {search} = new URL(url);
   if (step === 'x1') {
     if (search !== '?step1') {
-      error.textContent = 'unexpected navigation to ' + search;
+      error.textContent = 'unexpected navigation to ' + url;
       return;
     }
     if (!checkEvents(3)) return;
@@ -84,7 +85,7 @@ navigation.onnavigate = async e=>{
   }
   if (step === 'x2') {
     if (search !== '?step2') {
-      error.textContent = 'unexpected navigation to ' + search;
+      error.textContent = 'unexpected navigation to ' + url;
       return;
     }
     if (!checkEvents(4)) return;
