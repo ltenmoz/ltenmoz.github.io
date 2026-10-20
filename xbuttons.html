@@ -1,0 +1,114 @@
+<!doctype html>
+<title>X1/X2 button event tester</title>
+<p id="links">
+First, click these links to get history:
+<a id=step1 href="?step1">click here first</a>
+<a id=step2 href="?step2" inert style="opacity:0.5">click here second</a>
+</p>
+<p id=instructions></p>
+<p id=error style="color:red;font-weight:bold;"></p>
+<script>
+'use strict';
+let step = 'click-step1';
+let preventDefault = false;
+if (location.search) {
+  location.search = "";
+}
+let events = [];
+for (let type of ['mousedown', 'mouseup', 'auxclick']) {
+  addEventListener(type, e => {
+    if (preventDefault && type === 'mouseup') {
+      e.preventDefault();
+    }
+    events.push(e);
+  });
+}
+function checkEvents(button) {
+  const types = events.map(e => e.type).join();
+  if (types !== 'mousedown,mouseup,auxclick') {
+    error.textContent = `unexpected types ${types} (should be mousedown,mouseup,auxclick)`;
+    return false;
+  }
+  for (let event of events) {
+    if (event.button !== button) {
+      error.textContent = `unexpected button ${event.button} (should be ${button})`;
+      return false;
+    }
+  }
+  events = [];
+  return true;
+}
+
+addEventListener('auxclick', () => {
+  const {search} = location;
+  if (step === 'x1-pd') {
+    if (search !== '?step2') {
+      error.textContent = 'unexpected navigation to ' + search;
+      return;
+    }
+    if (!checkEvents(3)) return;
+    instructions.textContent = 'Now click the X1 button again (no preventDefault)';
+    preventDefault = false;
+    step = 'x1';
+    return;
+  }
+  if (step === 'x2-pd') {
+    if (search !== '?step1') {
+      error.textContent = 'unexpected navigation to ' + search;
+      return;
+    }
+    if (!checkEvents(4)) return;
+    instructions.textContent = 'Now click the X2 button again (no preventDefault)';
+    preventDefault = false;
+    step = 'x2';
+    return;
+  }
+});
+
+navigation.onnavigate = async e=>{
+  e.intercept();
+  if (error.firstChild) {
+    return;
+  }
+  const {search} = new URL(e.destination.url);
+  if (step === 'x1') {
+    if (search !== '?step1') {
+      error.textContent = 'unexpected navigation to ' + search;
+      return;
+    }
+    if (!checkEvents(3)) return;
+    instructions.textContent = 'Now click the X2 button (preventDefault)';
+    preventDefault = true;
+    step = 'x2-pd';
+    return;
+  }
+  if (step === 'x2') {
+    if (search !== '?step2') {
+      error.textContent = 'unexpected navigation to ' + search;
+      return;
+    }
+    if (!checkEvents(4)) return;
+    instructions.textContent = 'All tests passed!';
+    step = 'done';
+    return;
+  }
+  if (step !== 'click-step1' && step !== 'click-step2') return;
+
+  switch (search) {
+  case '?step1':
+    step1.inert = true;
+    step1.style.opacity = 0.5;
+    step2.inert = false;
+    step2.style.opacity = 1;
+    step = 'click-step2';
+    break;
+  case '?step2':
+    links.remove();
+    step = 'x1-pd';
+    events = [];
+    instructions.textContent = 'Now click the X1 button (preventDefault)';
+    preventDefault = true;
+    break;
+  }
+}
+</script>
